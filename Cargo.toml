@@ -1,0 +1,13 @@
+[package]
+name = "rocket_recipes"
+version = "0.1.0"
+authors = ["Baakel <thrauglor@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rocket = "0.4"
+neo4rs = "0.5"
+tokio = "1.5"
+dotenv = "0.15"
