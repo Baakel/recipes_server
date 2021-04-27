@@ -16,3 +16,5 @@ validator = { version="0.13", features=["derive"] }
 serde = { version="1", features=["derive"] }
 serde_json = "1.0"
 uuid = { version="0.8", features=["serde", "v4"] }
+argon2 = "0.1"
+rand_core = { version="0.6", features=["std"] }
