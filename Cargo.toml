@@ -18,3 +18,5 @@ serde_json = "1.0"
 uuid = { version="0.8", features=["serde", "v4"] }
 argon2 = "0.1"
 rand_core = { version="0.6", features=["std"] }
+oso = "0.12"
+oso-derive = "0.12"
