@@ -2,6 +2,7 @@
 
 mod models;
 mod routes;
+mod helpers;
 
 #[macro_use]
 extern crate rocket;
@@ -16,7 +17,6 @@ use tokio::runtime::Runtime;
 // use uuid::Uuid;
 // use rocket::request::FlashMessage;
 // use rocket::http::Status;
-
 
 const USER_MOUNT: &str = "/users";
 const ROOT_MOUNT: &str = "/";
@@ -41,14 +41,31 @@ fn main() {
     let rt = Runtime::new().expect("Unable to create rt");
     let graph = rt.block_on(create_graph(uri, user, pass));
     rocket::ignite()
-        .mount(RECIPES_MOUNT, routes![index, routes::recipes::new_recipe])
-        .mount(USER_MOUNT,
-               routes![
-               routes::users::new_user,
-               routes::users::query_users,
-               routes::users::get_user,
-               ])
-        .mount(ROOT_MOUNT, routes![routes::recipes::ask_db, routes::users::login])
+        .mount(
+            RECIPES_MOUNT,
+            routes![
+                index,
+                routes::recipes::new_recipe,
+                routes::recipes::random_recipes,
+            ],
+        )
+        .mount(
+            USER_MOUNT,
+            routes![
+                routes::users::new_user,
+                routes::users::query_users,
+                routes::users::get_user,
+                // routes::users::get_user_redirect,
+            ],
+        )
+        .mount(
+            ROOT_MOUNT,
+            routes![
+                routes::recipes::ask_db,
+                routes::users::login,
+                routes::users::logout,
+            ],
+        )
         .manage(rt)
         .manage(graph)
         .launch();
