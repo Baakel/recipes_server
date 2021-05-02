@@ -1,5 +1,5 @@
 // use rocket::*;
-use crate::models::{User, UserId};
+use crate::models::{User, UserId, GraphPool};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -15,9 +15,10 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 use validator::{validate_email, validate_length};
 
+
 // TODO: check if you can return a redirect with a status code
 #[post("/new", format = "application/json", data = "<user>")]
-pub fn new_user(user: Json<User>, graph: State<Graph>, rt: State<Runtime>) -> Flash<Redirect> {
+pub fn new_user(user: Json<User>, graph: State<GraphPool>, rt: State<Runtime>) -> Flash<Redirect> {
     let id = Uuid::new_v4().to_string();
     let empty_string = String::new();
     let username = &user.username;
@@ -59,11 +60,10 @@ pub fn new_user(user: Json<User>, graph: State<Graph>, rt: State<Runtime>) -> Fl
     )
 }
 
-// TODO: Retrieving a cookie
 #[post("/login", format = "application/json", data = "<user>")]
 pub fn login(
     user: Json<User>,
-    graph: State<Graph>,
+    graph: State<GraphPool>,
     rt: State<Runtime>,
     mut cookies: Cookies,
 ) -> String {
@@ -106,7 +106,7 @@ pub fn login(
 }
 
 #[get("/")]
-pub fn query_users(rt: State<Runtime>, graph: State<Graph>, flash: Option<FlashMessage>) -> String {
+pub fn query_users(rt: State<Runtime>, graph: State<GraphPool>, flash: Option<FlashMessage>) -> String {
     let res = rt.block_on(async {
         let mut result = graph
             .execute(query("MATCH (u:User) RETURN u"))
@@ -139,7 +139,7 @@ pub fn query_users(rt: State<Runtime>, graph: State<Graph>, flash: Option<FlashM
 #[get("/<name>")]
 pub fn get_user(
     rt: State<Runtime>,
-    graph: State<Graph>,
+    graph: State<GraphPool>,
     name: String,
     key: UserId,
     usr: User,

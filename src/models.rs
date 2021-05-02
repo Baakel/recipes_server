@@ -1,11 +1,18 @@
-use neo4rs::*;
-use rocket::http::Status;
-use rocket::request::{FromRequest, Outcome};
-use rocket::{Request, State};
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
 use uuid::Uuid;
 use validator::Validate;
+use std::sync::Arc;
+use neo4rs::Graph;
+
+
+pub type GraphPool = Arc<Graph>;
+
+// Helper for destructuring recipe id's. also useful un case we wanted to have a collection of
+// users or some way of POSTing multiple elements for a route.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IdsVec {
+    pub ids: Vec<String>
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RecipeVec {
@@ -13,7 +20,7 @@ pub struct RecipeVec {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
-#[serde(rename_all="camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Recipe {
     pub id: Option<Uuid>,
     pub name: String,
@@ -59,90 +66,11 @@ pub enum UsedIdError {
     Invalid,
 }
 
-// Request guards for authentication. If they fail the page won't be visible
-// Similar to the Flask @login_required decorators.
-impl<'a, 'r> FromRequest<'a, 'r> for UserId {
-    type Error = UsedIdError;
+#[derive(Debug)]
+pub struct ChosenDeleted(pub bool);
 
-    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        let rt = request
-            .guard::<State<Runtime>>()
-            .expect("Couldn't get the rt guard");
-        let graph = request
-            .guard::<State<Graph>>()
-            .expect("Couldn't get the graph guard");
-        let cookie_id_option: Option<String> = request
-            .cookies()
-            .get_private("user_id")
-            .and_then(|cookie| cookie.value().parse().ok());
-        if cookie_id_option.is_none() {
-            return Outcome::Failure((Status::Unauthorized, UsedIdError::Missing));
-        }
-        let cookie_id = cookie_id_option.unwrap();
-        let result = request.local_cache(|| {
-            rt.block_on(async {
-                let mut res = graph
-                    .execute(
-                        query("MATCH (u:User) WHERE u.id = $id RETURN u")
-                            .param("id", cookie_id.clone()),
-                    )
-                    .await
-                    .expect("Couldn't find that Uuid");
-
-                let row = res.next().await.expect("Couldn't fetch row");
-                row.as_ref()?.get::<Node>("u")
-            })
-        });
-        if result.is_none() {
-            return Outcome::Failure((Status::NotFound, UsedIdError::Invalid));
-        }
-        Outcome::Success(UserId(cookie_id))
-    }
-}
-
-// We are probably never using this trait. You get the user back without the password but we
-// don't really need it. With our current implementation we usually query the db every time
-// anyways. A User type doesn't really help us unless we wanted to return it as a JSON format for
-// some specific task in the frontend.
-impl<'a, 'r> FromRequest<'a, 'r> for User {
-    type Error = ();
-
-    fn from_request(request: &'a Request<'r>) -> Outcome<Self, ()> {
-        let rt = request.guard::<State<Runtime>>()?;
-        let graph = request.guard::<State<Graph>>()?;
-        let uuid_guard = request.guard::<UserId>();
-        if uuid_guard.is_failure() {
-            return Outcome::Failure((Status::Unauthorized, ()));
-        }
-        let uuid = uuid_guard.unwrap().0;
-        let result = request.local_cache(|| {
-            rt.block_on(async {
-                let mut res = graph
-                    .execute(
-                        query("MATCH (u:User) WHERE u.id = $id RETURN u").param("id", uuid.clone()),
-                    )
-                    .await
-                    .expect("Couldn't find that Uuid");
-
-                let row = res.next().await.expect("Couldn't fetch row");
-                row.as_ref()?.get::<Node>("u")
-            })
-        });
-        if result.is_none() {
-            return Outcome::Failure((Status::NotFound, ()));
-        }
-        let id_string: Option<String> = result.as_ref().unwrap().get("id");
-        let uuid = Uuid::parse_str(id_string.unwrap().as_str()).expect("Couldn't parse string");
-        let name = result.as_ref().unwrap().get("username").unwrap();
-        let email = result.as_ref().unwrap().get("email").unwrap();
-        let password = "";
-        let role = result.as_ref().unwrap().get("role").unwrap();
-        Outcome::Success(User {
-            id: Some(uuid),
-            username: name,
-            email: Some(email),
-            password: password.to_string(),
-            role: Some(role),
-        })
-    }
+#[derive(Debug)]
+pub enum ChosenTimeError {
+    Missing,
+    Invalid,
 }
