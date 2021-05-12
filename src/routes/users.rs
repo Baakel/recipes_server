@@ -1,13 +1,13 @@
 // use rocket::*;
-use crate::models::{User, UserId, GraphPool};
+use crate::models::{User, UserId, GraphPool, LoginCredentials};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use neo4rs::*;
 use rand_core::OsRng;
-use rocket::http::{Cookie, Cookies, Status};
-use rocket::request::FlashMessage;
+use rocket::http::{Cookie, Cookies, Status, SameSite};
+use rocket::request::{FlashMessage, Form};
 use rocket::response::{Flash, Redirect};
 use rocket::State;
 use rocket_contrib::json::Json;
@@ -66,7 +66,7 @@ pub fn login(
     graph: State<GraphPool>,
     rt: State<Runtime>,
     mut cookies: Cookies,
-) -> String {
+) -> Status {
     let username = &user.username;
     let password = &user.password.as_bytes();
     let argon2 = Argon2::default();
@@ -96,13 +96,36 @@ pub fn login(
 
     let parsed_hash = PasswordHash::new(&password_hash).expect("Couldn't parse the hash");
     if argon2.verify_password(password, &parsed_hash).is_ok() {
-        let cookie = Cookie::new("user_id", id);
+        let cookie = Cookie::build("user_id", id)
+            .same_site(SameSite::None)
+            .finish();
         cookies.add_private(cookie);
         // return Flash::success(Redirect::to(uri!("/users", query_users)), "Successfully logged in")
-        return "Successfully logged in".to_string();
+        return Status::Ok
     }
     // Flash::error(Redirect::to(uri!("/users", query_users)), "Wrong credentials")
-    "Bad Credentials".to_string()
+    Status::Unauthorized
+}
+
+#[post("/login", data = "<user>", rank = 2)]
+pub fn login_form(
+    user: Form<LoginCredentials>,
+    graph: State<GraphPool>,
+    rt: State<Runtime>,
+    cookies: Cookies,
+) -> Status {
+    let new_user = User {
+        id: None,
+        username: user.username.to_owned(),
+        password: user.password.to_owned(),
+        email: None,
+        role: None
+    };
+    let user = Json(new_user);
+    if login(user, graph, rt, cookies) == Status::Ok {
+        return Status::Ok
+    }
+    Status::Unauthorized
 }
 
 #[get("/")]
@@ -170,7 +193,7 @@ pub fn get_user(
 //     Redirect::to(uri!(login))
 // }
 
-#[post("/logout")]
+#[get("/logout")]
 pub fn logout(mut cookies: Cookies) -> Status {
     cookies.remove_private(Cookie::named("user_id"));
     Status::NoContent

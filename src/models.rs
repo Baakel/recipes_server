@@ -3,6 +3,7 @@ use uuid::Uuid;
 use validator::Validate;
 use std::sync::Arc;
 use neo4rs::Graph;
+// use rocket::request::FromForm;
 
 
 pub type GraphPool = Arc<Graph>;
@@ -53,6 +54,12 @@ pub struct Ingredient {
     pub name: String,
     pub tipo: Option<String>,
     pub amount: String,
+}
+
+#[derive(Debug, FromForm)]
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: String,
 }
 
 // Used as a sort of JWT just verifying that the user has a valid id in the db.
