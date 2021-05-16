@@ -25,6 +25,7 @@ pub fn format_recipes(row: Row) -> Recipe {
     let protein = node.get("protein").unwrap_or(0.0);
     let servings = node.get::<String>("servings");
     let meal_type = node.get::<String>("meal_type");
+    let time = node.get::<String>("time");
 
     let steps = process_steps(steps);
 
@@ -41,6 +42,7 @@ pub fn format_recipes(row: Row) -> Recipe {
         servings,
         meal_type,
         ingredients: None,
+        time
     };
 
     recipe

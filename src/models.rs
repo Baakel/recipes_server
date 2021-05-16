@@ -35,6 +35,7 @@ pub struct Recipe {
     pub servings: Option<String>,
     pub meal_type: Option<String>,
     pub ingredients: Option<Vec<Ingredient>>,
+    pub time: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Validate)]

@@ -57,6 +57,7 @@ pub fn new_recipe(
     let recipe_protein = recipe_form.protein.as_ref().unwrap_or(&0f32);
     let recipe_servings = recipe_form.servings.as_ref().unwrap_or(&empty_string);
     let recipe_meal_type = recipe_form.meal_type.as_ref().unwrap_or(&empty_string);
+    let recipe_time = recipe_form.time.as_ref().unwrap_or(&empty_string);
     let mut steps_string = String::new();
 
     if recipe_form.steps.is_some() {
@@ -72,7 +73,8 @@ pub fn new_recipe(
     let param_string = format!(
         "id: \"{id}\", name: \"{name}\", public: {public}, tipo: \"{tipo}\", steps:
         \"{steps}\", calories: {calories}, carbohydrates: {carbs}, fat: {fat}, \
-        protein: {protein}, servings: \"{servings}\", meal_type: \"{meal_type}\"",
+        protein: {protein}, servings: \"{servings}\", meal_type: \"{meal_type}\", time: \
+        \"{time}\"",
         id = recipe_uuid,
         name = recipe_name,
         public = recipe_public,
@@ -84,6 +86,7 @@ pub fn new_recipe(
         protein = recipe_protein,
         servings = recipe_servings,
         meal_type = recipe_meal_type,
+        time = recipe_time
     );
 
     // Using this runtime since rocket runs synchronously right now. That will change with rocket
