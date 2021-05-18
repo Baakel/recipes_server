@@ -1,16 +1,14 @@
 use crate::helpers::recipes::{format_recipes, get_ingredients_from_db};
-use crate::models::{Recipe, RecipeVec, UserId, IdsVec, ChosenDeleted, GraphPool};
+use crate::models::{ChosenDeleted, GraphPool, IdsVec, Recipe, RecipeVec, UserId};
+use chrono::prelude::*;
+use itertools::Itertools;
 use neo4rs::*;
 use rand::prelude::*;
-use rocket::response::Redirect;
+use rocket::http::Status;
 use rocket::State;
 use rocket_contrib::json::Json;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
-use chrono::prelude::*;
-use rocket::http::Status;
-use itertools::Itertools;
-
 
 #[get("/query")]
 pub fn ask_db(rt: State<Runtime>, graph: State<GraphPool>) -> String {
@@ -44,7 +42,7 @@ pub fn new_recipe(
     graph: State<GraphPool>,
     rt: State<Runtime>,
     u_id: UserId,
-) -> Redirect {
+) -> Status {
     // Needed to turn any Options returning None into empty strings
     let empty_string = String::new();
     let recipe_uuid = Uuid::new_v4().to_string();
@@ -139,7 +137,7 @@ pub fn new_recipe(
         }
     });
     println!("{:?}", &recipe_form);
-    Redirect::to(uri!(ask_db))
+    Status::Created
 }
 
 #[get("/weekly?<amount>")]
@@ -147,30 +145,29 @@ pub fn random_recipes(
     rt: State<Runtime>,
     graph: State<GraphPool>,
     usr: UserId,
-    amount: Option<usize>
+    amount: Option<usize>,
 ) -> Json<RecipeVec> {
     let mut rng = &mut rand::thread_rng();
-    let recipes_vector =
-        rt.block_on(async {
-            let mut result = graph
-                .execute(
-                    query("MATCH (r:Recipe)-[:OWNS|:LIKED]-(u:User) WHERE u.id = $id RETURN r")
-                        .param("id", usr.0),
-                )
-                .await
-                .expect("Error fetching recipes");
+    let recipes_vector = rt.block_on(async {
+        let mut result = graph
+            .execute(
+                query("MATCH (r:Recipe)-[:OWNS|:LIKED]-(u:User) WHERE u.id = $id RETURN r")
+                    .param("id", usr.0),
+            )
+            .await
+            .expect("Error fetching recipes");
 
-            let mut nodes_vector = Vec::new();
+        let mut nodes_vector = Vec::new();
 
-            while let Ok(Some(row)) = result.next().await {
-                nodes_vector.push(format_recipes(row))
-            }
+        while let Ok(Some(row)) = result.next().await {
+            nodes_vector.push(format_recipes(row))
+        }
 
-            for recipe in &mut nodes_vector {
-                get_ingredients_from_db(graph.clone(), recipe).await;
-            }
-            nodes_vector
-        });
+        for recipe in &mut nodes_vector {
+            get_ingredients_from_db(graph.clone(), recipe).await;
+        }
+        nodes_vector
+    });
     let amount_of_recipes = amount.unwrap_or(7);
     let shuffled_recipes = recipes_vector
         .choose_multiple(&mut rng, amount_of_recipes)
@@ -183,7 +180,7 @@ pub fn random_recipes(
 }
 
 // TODO: Change the return type from string to Outcome.
-#[post("/weekly", format="application/json", data="<data>")]
+#[post("/weekly", format = "application/json", data = "<data>")]
 pub fn choose_recipes(
     graph: State<GraphPool>,
     rt: State<Runtime>,
@@ -194,14 +191,18 @@ pub fn choose_recipes(
     let date = Utc::now().naive_utc();
     rt.block_on(async {
         for recipe_id in &data.ids {
-            graph.run(
-                query(
-                    "MATCH (u:User {id: $id}), (r:Recipe {id: $rid}) \
-                    CREATE (u)-[:CHOSEN {created: $exp}]->(r)"
-                ).param("id", u_id.as_str())
+            graph
+                .run(
+                    query(
+                        "MATCH (u:User {id: $id}), (r:Recipe {id: $rid}) \
+                    CREATE (u)-[:CHOSEN {created: $exp}]->(r)",
+                    )
+                    .param("id", u_id.as_str())
                     .param("rid", recipe_id.as_str())
-                    .param("exp", date)
-            ).await.expect("Couldn't query graph");
+                    .param("exp", date),
+                )
+                .await
+                .expect("Couldn't query graph");
         }
     });
     Status::Created
@@ -216,13 +217,18 @@ pub fn chosen_recipes(
 ) -> Json<RecipeVec> {
     let u_id = usr.0;
     if deleted.0 {
-        return Json(RecipeVec { recipes: Vec::new() })
+        return Json(RecipeVec {
+            recipes: Vec::new(),
+        });
     }
     let recipes_vector = rt.block_on(async {
-        let mut recipes = graph.execute(
-            query("MATCH (u:User)-[:CHOSEN]-(r:Recipe) WHERE u.id = $id RETURN r")
-                .param("id", u_id)
-        ).await.expect("Couldn't query graph");
+        let mut recipes = graph
+            .execute(
+                query("MATCH (u:User)-[:CHOSEN]-(r:Recipe) WHERE u.id = $id RETURN r")
+                    .param("id", u_id),
+            )
+            .await
+            .expect("Couldn't query graph");
 
         let mut recipes_vector = Vec::new();
 
@@ -235,7 +241,9 @@ pub fn chosen_recipes(
         recipes_vector
     });
 
-    Json(RecipeVec{ recipes: recipes_vector})
+    Json(RecipeVec {
+        recipes: recipes_vector,
+    })
 }
 
 #[get("/ingredient/<ingredient>")]
@@ -247,14 +255,18 @@ pub fn recipes_by_ingredient(
 ) -> Json<RecipeVec> {
     let u_id = u_id.0;
     let recipe_vector = rt.block_on(async {
-        let mut user_recipes = graph.execute(
-            query(
-                "MATCH (u:User)-[:OWNS]->(r:Recipe)-[:USES]->(i:Ingredient) \
+        let mut user_recipes = graph
+            .execute(
+                query(
+                    "MATCH (u:User)-[:OWNS]->(r:Recipe)-[:USES]->(i:Ingredient) \
                 WHERE u.id = $id AND i.name = $ing \
-                RETURN r"
-            ).param("id", u_id.clone())
-                .param("ing", ingredient.clone())
-        ).await.expect("Couldn't run query");
+                RETURN r",
+                )
+                .param("id", u_id.clone())
+                .param("ing", ingredient.clone()),
+            )
+            .await
+            .expect("Couldn't run query");
 
         let mut recipes_vec = Vec::new();
 
@@ -262,19 +274,26 @@ pub fn recipes_by_ingredient(
             recipes_vec.push(format_recipes(row))
         }
 
-        let mut public_recipes = graph.execute(
-            query(
-                "MATCH (r:Recipe)-[:USES]->(i:Ingredient) \
+        let mut public_recipes = graph
+            .execute(
+                query(
+                    "MATCH (r:Recipe)-[:USES]->(i:Ingredient) \
                 WHERE r.public = true AND i.name = $ing \
-                RETURN r"
-            ).param("ing", ingredient.clone())
-        ).await.expect("Couldn't run query for public");
+                RETURN r",
+                )
+                .param("ing", ingredient.clone()),
+            )
+            .await
+            .expect("Couldn't run query for public");
 
         while let Ok(Some(row)) = public_recipes.next().await {
             recipes_vec.push(format_recipes(row))
         }
 
-        let mut unique_recipes = recipes_vec.iter().unique_by(|r| &r.id).cloned()
+        let mut unique_recipes = recipes_vec
+            .iter()
+            .unique_by(|r| &r.id)
+            .cloned()
             .collect::<Vec<_>>();
         for recipe in &mut unique_recipes {
             get_ingredients_from_db(graph.clone(), recipe).await;
@@ -282,7 +301,9 @@ pub fn recipes_by_ingredient(
         unique_recipes
     });
 
-    Json(RecipeVec{recipes: recipe_vector})
+    Json(RecipeVec {
+        recipes: recipe_vector,
+    })
 }
 
 #[delete("/remove/<r_id>")]
@@ -294,14 +315,18 @@ pub fn remove_recipe(
 ) -> Status {
     // let u_id = u_id.0;
     rt.block_on(async {
-        graph.run(
-            query(
-                "MATCH (u:User)-[:OWNS]->(r:Recipe) \
+        graph
+            .run(
+                query(
+                    "MATCH (u:User)-[:OWNS]->(r:Recipe) \
                 WHERE u.id = $u_id AND r.id = $r_id \
-                DETACH DELETE r"
-            ).param("u_id", u_id.0.clone())
-                .param("r_id", r_id.clone())
-        ).await.expect("Couldn't run query");
+                DETACH DELETE r",
+                )
+                .param("u_id", u_id.0.clone())
+                .param("r_id", r_id.clone()),
+            )
+            .await
+            .expect("Couldn't run query");
     });
     Status::NoContent
 }
@@ -314,14 +339,18 @@ pub fn get_recipe(
     r_id: String,
 ) -> Json<Recipe> {
     let recipe = rt.block_on(async {
-       let mut res = graph.execute(
-           query(
-               "MATCH (u:User)-[:OWNS]->(r:Recipe) \
+        let mut res = graph
+            .execute(
+                query(
+                    "MATCH (u:User)-[:OWNS]->(r:Recipe) \
                WHERE (u.id = $u_id AND r.id = $r_id) OR (r.id = $r_id AND r.public = true) \
-               RETURN r"
-           ).param("u_id", u_id.0.clone())
-               .param("r_id", r_id.clone())
-       ).await.expect("Error getting the recipe");
+               RETURN r",
+                )
+                .param("u_id", u_id.0.clone())
+                .param("r_id", r_id.clone()),
+            )
+            .await
+            .expect("Error getting the recipe");
         let row = res.next().await;
         let mut recipe = format_recipes(row.expect("Error in row").expect("Empty row"));
         get_ingredients_from_db(graph.clone(), &mut recipe).await;

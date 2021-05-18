@@ -1,7 +1,6 @@
+use crate::models::{GraphPool, Ingredient, Recipe};
 use neo4rs::*;
 use uuid::Uuid;
-use crate::models::{Recipe, Ingredient, GraphPool};
-
 
 pub fn process_steps(steps_string: String) -> Option<Vec<String>> {
     let split_string: Vec<_> = steps_string.lines().map(|s| s.to_string()).collect();
@@ -42,7 +41,7 @@ pub fn format_recipes(row: Row) -> Recipe {
         servings,
         meal_type,
         ingredients: None,
-        time
+        time,
     };
 
     recipe
@@ -62,14 +61,12 @@ pub fn format_ingredients(row: Row) -> Ingredient {
     }
 }
 
-pub async fn get_ingredients_from_db(
-    graph: GraphPool,
-    recipe: &mut Recipe
-) {
-    let mut response = graph.execute(
-        query("MATCH (r:Recipe)-[u:USES]->(i:Ingredient) WHERE r.id = $rid RETURN i, u")
-            .param("rid", recipe.id.unwrap().to_string())
-    )
+pub async fn get_ingredients_from_db(graph: GraphPool, recipe: &mut Recipe) {
+    let mut response = graph
+        .execute(
+            query("MATCH (r:Recipe)-[u:USES]->(i:Ingredient) WHERE r.id = $rid RETURN i, u")
+                .param("rid", recipe.id.unwrap().to_string()),
+        )
         .await
         .expect("Couldn't query the ingredients");
 

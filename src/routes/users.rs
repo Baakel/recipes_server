@@ -1,12 +1,12 @@
 // use rocket::*;
-use crate::models::{User, UserId, GraphPool, LoginCredentials};
+use crate::models::{GraphPool, LoginCredentials, User, UserId};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use neo4rs::*;
 use rand_core::OsRng;
-use rocket::http::{Cookie, Cookies, Status, SameSite};
+use rocket::http::{Cookie, Cookies, SameSite, Status};
 use rocket::request::{FlashMessage, Form};
 use rocket::response::{Flash, Redirect};
 use rocket::State;
@@ -14,7 +14,6 @@ use rocket_contrib::json::Json;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 use validator::{validate_email, validate_length};
-
 
 // TODO: check if you can return a redirect with a status code
 #[post("/new", format = "application/json", data = "<user>")]
@@ -71,7 +70,7 @@ pub fn login(
     let password = &user.password.as_bytes();
     let argon2 = Argon2::default();
 
-    let res_tuple: (String, String) = rt.block_on(async {
+    let res_tuple: (String, String, String) = rt.block_on(async {
         let mut result = graph
             .execute(
                 query("MATCH (u:User) WHERE u.username = $name RETURN u")
@@ -89,19 +88,35 @@ pub fn login(
         (
             node.get("password").expect("No password found"),
             node.get("id").expect("No id found"),
+            node.get("username").expect("No Username found"),
         )
     });
     let password_hash = res_tuple.0;
     let id = res_tuple.1;
+    let username = res_tuple.2;
 
     let parsed_hash = PasswordHash::new(&password_hash).expect("Couldn't parse the hash");
     if argon2.verify_password(password, &parsed_hash).is_ok() {
+
+        // Notice that apps like Insomnia won't use cookies if the secure property is set.
         let cookie = Cookie::build("user_id", id)
+            .path("/")
             .same_site(SameSite::None)
+            .secure(true)
             .finish();
         cookies.add_private(cookie);
+        // Note that we are specifically changing the path of this public cookie to "/" so that
+        // svelte is able to see it. I don't know if this a svelte problem or a me problem. But
+        // if we leave it blank rocket will set the path to "/api" and then svelte won't see it
+        let u_cookie = Cookie::build("username", username)
+            .path("/")
+            .same_site(SameSite::None)
+            .secure(true)
+            .http_only(true)
+            .finish();
+        cookies.add(u_cookie);
         // return Flash::success(Redirect::to(uri!("/users", query_users)), "Successfully logged in")
-        return Status::Ok
+        return Status::Ok;
     }
     // Flash::error(Redirect::to(uri!("/users", query_users)), "Wrong credentials")
     Status::Unauthorized
@@ -119,17 +134,21 @@ pub fn login_form(
         username: user.username.to_owned(),
         password: user.password.to_owned(),
         email: None,
-        role: None
+        role: None,
     };
     let user = Json(new_user);
     if login(user, graph, rt, cookies) == Status::Ok {
-        return Status::Ok
+        return Status::Ok;
     }
     Status::Unauthorized
 }
 
 #[get("/")]
-pub fn query_users(rt: State<Runtime>, graph: State<GraphPool>, flash: Option<FlashMessage>) -> String {
+pub fn query_users(
+    rt: State<Runtime>,
+    graph: State<GraphPool>,
+    flash: Option<FlashMessage>,
+) -> String {
     let res = rt.block_on(async {
         let mut result = graph
             .execute(query("MATCH (u:User) RETURN u"))
@@ -195,6 +214,13 @@ pub fn get_user(
 
 #[get("/logout")]
 pub fn logout(mut cookies: Cookies) -> Status {
+
+    // Adding this path is needed for svelte to actually modify the cookie since cookies with a
+    // mismatch in paths will be ignored. And we specifically change the path on the login route
+    // to "/" for svelte to read it properly
+    let mut username_cookie = Cookie::named("username");
+    username_cookie.set_path("/");
+    cookies.remove(username_cookie);
     cookies.remove_private(Cookie::named("user_id"));
     Status::NoContent
 }

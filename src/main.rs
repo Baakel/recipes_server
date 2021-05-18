@@ -1,20 +1,20 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
-mod models;
-mod routes;
 mod guards;
 mod helpers;
+mod models;
+mod routes;
 
 #[macro_use]
 extern crate rocket;
 // use rocket_contrib::serve::StaticFiles;
-use rocket_cors::{AllowedHeaders, AllowedOrigins};
 use dotenv::dotenv;
 use neo4rs::*;
+use rocket_cors::{AllowedHeaders, AllowedOrigins};
 // use rocket::State;
-use tokio::runtime::Runtime;
-use std::sync::Arc;
 use rocket::http::Method;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 // use std::collections::HashSet;
 // use crate::models::{Recipe};
 // use crate::users::{new_user, login, query_users};
@@ -53,8 +53,10 @@ fn main() {
     let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
     let cors = rocket_cors::CorsOptions {
         allowed_origins,
-        allowed_methods: vec![Method::Post, Method::Options, Method::Get].into_iter().map
-        (From::from).collect(),
+        allowed_methods: vec![Method::Post, Method::Options, Method::Get]
+            .into_iter()
+            .map(From::from)
+            .collect(),
         allowed_headers: AllowedHeaders::some(&["Authorization", "Accept", "Content-Type"]),
         allow_credentials: true,
         expose_headers: ["Content-Type", "X-Custom"]
@@ -64,8 +66,10 @@ fn main() {
         max_age: None,
         send_wildcard: false,
         fairing_route_base: "/".to_string(),
-        fairing_route_rank: 0
-    }.to_cors().expect("Cant make cors");
+        fairing_route_rank: 0,
+    }
+    .to_cors()
+    .expect("Cant make cors");
 
     rocket::ignite()
         .mount(

@@ -1,10 +1,9 @@
+use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 use validator::Validate;
-use std::sync::Arc;
-use neo4rs::Graph;
 // use rocket::request::FromForm;
-
 
 pub type GraphPool = Arc<Graph>;
 
@@ -12,7 +11,7 @@ pub type GraphPool = Arc<Graph>;
 // users or some way of POSTing multiple elements for a route.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct IdsVec {
-    pub ids: Vec<String>
+    pub ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
