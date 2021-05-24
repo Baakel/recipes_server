@@ -92,7 +92,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for ChosenDeleted {
             return Outcome::Failure((Status::Unauthorized, ChosenTimeError::Missing));
         }
         let uuid = uuid_guard.unwrap().0;
-        let date_created = request.local_cache(|| {
+        let date_created: &std::result::Result<NaiveDateTime, ()> = request.local_cache(|| {
             rt.block_on(async {
                 let mut res = graph
                     .execute(
@@ -102,18 +102,21 @@ impl<'a, 'r> FromRequest<'a, 'r> for ChosenDeleted {
                     .await
                     .expect("Couldn't find that Uuid");
 
-                let row = res
-                    .next()
-                    .await
-                    .expect("Couldn't fetch row")
-                    .expect("Empty row");
-                let relationship_node = row.get::<Relation>("c").unwrap();
+                let row = res.next().await.expect("Couldn't fetch row");
+                if row.is_none() {
+                    return Err(());
+                }
+                let relationship_node = row.unwrap().get::<Relation>("c").unwrap();
                 let date_created: NaiveDateTime = relationship_node.get("created").unwrap();
 
-                date_created
+                Ok(date_created)
             })
         });
+        if date_created.is_err() {
+            return Outcome::Success(ChosenDeleted(true));
+        }
         let eight_days_offset = date_created
+            .unwrap()
             .checked_add_signed(Duration::seconds(8 * 24 * 60 * 60))
             .unwrap();
         if Utc::now().naive_utc() > eight_days_offset {
