@@ -53,7 +53,7 @@ fn main() {
     let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
     let cors = rocket_cors::CorsOptions {
         allowed_origins,
-        allowed_methods: vec![Method::Post, Method::Options, Method::Get]
+        allowed_methods: vec![Method::Post, Method::Options, Method::Get, Method::Delete]
             .into_iter()
             .map(From::from)
             .collect(),
@@ -83,6 +83,7 @@ fn main() {
                 routes::recipes::recipes_by_ingredient,
                 routes::recipes::remove_recipe,
                 routes::recipes::get_recipe,
+                routes::recipes::reset_all_chosen,
             ],
         )
         .mount(

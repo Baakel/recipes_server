@@ -358,3 +358,24 @@ pub fn get_recipe(
     });
     Json(recipe)
 }
+
+#[delete("/weeklyreset")]
+pub fn reset_all_chosen(
+    rt: State<Runtime>,
+    graph: State<GraphPool>,
+    u_id: UserId,
+) -> Status {
+    rt.block_on(async {
+        graph.run(
+            query(
+                "MATCH (u:User)-[c:CHOSEN]->() \
+                WHERE u.id = $u_id \
+                DETACH DELETE c"
+            )
+            .param("u_id", u_id.0.clone())
+        )
+        .await
+            .expect("Couldn't delete chosen relationships");
+    });
+    Status::NoContent
+}
