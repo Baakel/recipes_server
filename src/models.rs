@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 use validator::Validate;
+use std::cmp::Ordering;
 // use rocket::request::FromForm;
 
 pub type GraphPool = Arc<Graph>;
@@ -17,6 +18,19 @@ pub struct IdsVec {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RecipeVec {
     pub recipes: Vec<Recipe>,
+    // pub rels: Option<Vec<(Uuid, String)>>
+    pub rels: Option<RecipeRelationships>
+}
+
+// #[derive(Debug, Deserialize, Serialize)]
+// pub struct RelationshipVec {
+//     pub relationship: (Uuid, String)
+// }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RecipeRelationships {
+    pub owns: Vec<Uuid>,
+    pub likes: Vec<Uuid>
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Validate)]
@@ -81,3 +95,24 @@ pub enum ChosenTimeError {
     Missing,
     Invalid,
 }
+
+// Implementations
+// Need to implement all these for Recipe so that we can sort it and dedup it later on
+impl Ord for Recipe {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+impl PartialOrd for Recipe {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for Recipe {
+    fn eq(&self, other:&Self) -> bool {
+        self.id == other.id
+    }
+}
+// This one we leave empty, it's just telling the compiler that we are implementing it but it's
+// not really doing anything and the compiler can't check so it will use PartialEq instead
+impl Eq for Recipe {}

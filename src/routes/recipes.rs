@@ -1,5 +1,5 @@
 use crate::helpers::recipes::{format_recipes, get_ingredients_from_db};
-use crate::models::{ChosenDeleted, GraphPool, IdsVec, Recipe, RecipeVec, UserId};
+use crate::models::{ChosenDeleted, GraphPool, IdsVec, Recipe, RecipeVec, UserId, RecipeRelationships};
 use chrono::prelude::*;
 use itertools::Itertools;
 use neo4rs::*;
@@ -151,7 +151,7 @@ pub fn random_recipes(
     let recipes_vector = rt.block_on(async {
         let mut result = graph
             .execute(
-                query("MATCH (r:Recipe)-[:OWNS|:LIKED]-(u:User) WHERE u.id = $id RETURN r")
+                query("MATCH (r:Recipe)-[:OWNS|:LIKES]-(u:User) WHERE u.id = $id RETURN r")
                     .param("id", usr.0),
             )
             .await
@@ -176,6 +176,7 @@ pub fn random_recipes(
 
     Json(RecipeVec {
         recipes: shuffled_recipes,
+        rels: None
     })
 }
 
@@ -219,6 +220,7 @@ pub fn chosen_recipes(
     if deleted.0 {
         return Json(RecipeVec {
             recipes: Vec::new(),
+            rels: None
         });
     }
     let recipes_vector = rt.block_on(async {
@@ -243,6 +245,7 @@ pub fn chosen_recipes(
 
     Json(RecipeVec {
         recipes: recipes_vector,
+        rels: None
     })
 }
 
@@ -303,6 +306,78 @@ pub fn recipes_by_ingredient(
 
     Json(RecipeVec {
         recipes: recipe_vector,
+        rels: None
+    })
+}
+
+#[get("/list")]
+pub fn recipe_list(graph: State<GraphPool>, rt: State<Runtime>, usr: UserId) -> Json<RecipeVec> {
+    let recipes_vec = rt.block_on(async {
+        let mut owned_recipes = graph
+            .execute(
+                query(
+                    "MATCH (u:User)-[c:OWNS|LIKES]->(r:Recipe) \
+            WHERE u.id = $u_id \
+            RETURN r, c",
+                )
+                .param("u_id", usr.0.clone()),
+            )
+            .await
+            .expect("Error getting the recipes!");
+
+        let mut recipes_vector = Vec::new();
+        // let mut rel_vector = Vec::new();
+        let mut rel_struct = RecipeRelationships {owns: Vec::new(), likes: Vec::new() };
+
+        while let Ok(Some(row)) = owned_recipes.next().await {
+            let relationship_node = row.get::<Relation>("c").unwrap();
+            let formatted_recipe = format_recipes(row);
+            if &relationship_node.typ() == "OWNS" {
+                rel_struct.owns.push(formatted_recipe.id.unwrap().clone())
+            }
+            if &relationship_node.typ() == "LIKES" {
+                rel_struct.likes.push(formatted_recipe.id.unwrap().clone())
+            }
+            // rel_vector.push((formatted_recipe.id.unwrap().clone(), relationship_node.typ()));
+            recipes_vector.push(formatted_recipe);
+        }
+
+        // let mut liked_recipes = graph.execute(
+        //     query(
+        //         "MATCH (u:User)-[l:LIKES]->(r:Recipe) \
+        //         WHERE u.id = $u_id"
+        //     )
+        // )
+        // .await
+        // .expect("Couldn't get the liked recipes");
+
+        let mut public_recipes = graph.execute(
+            query(
+                "MATCH (r:Recipe)-[:OWNS]-(u:User) \
+                WHERE r.public = true AND NOT u.id = $u_id \
+                RETURN r"
+            )
+            .param("u_id", usr.0.clone())
+        )
+        .await
+        .expect("Error getting public recipes!");
+
+        while let Ok(Some(row)) = public_recipes.next().await {
+            recipes_vector.push(format_recipes(row))
+        }
+
+        recipes_vector.sort();
+        recipes_vector.dedup();
+
+        for recipe in &mut recipes_vector {
+            get_ingredients_from_db(graph.clone(), recipe).await;
+        }
+        (recipes_vector, rel_struct)
+    });
+
+    Json(RecipeVec {
+        recipes: recipes_vec.0,
+        rels: Option::from(recipes_vec.1)
     })
 }
 
@@ -359,23 +434,97 @@ pub fn get_recipe(
     Json(recipe)
 }
 
-#[delete("/weeklyreset")]
-pub fn reset_all_chosen(
-    rt: State<Runtime>,
-    graph: State<GraphPool>,
-    u_id: UserId,
-) -> Status {
-    rt.block_on(async {
-        graph.run(
-            query(
-                "MATCH (u:User)-[c:CHOSEN]->() \
-                WHERE u.id = $u_id \
-                DETACH DELETE c"
+#[get("/share?<r_id>")]
+pub fn share_recipe(graph: State<GraphPool>, rt: State<Runtime>, r_id: String) -> Json<Recipe> {
+    let recipe = rt.block_on(async {
+        let mut res = graph
+            .execute(
+                query(
+                    "MATCH (r:Recipe) \
+               WHERE r.id = $r_id \
+               RETURN r",
+                )
+                .param("r_id", r_id.clone()),
             )
-            .param("u_id", u_id.0.clone())
-        )
-        .await
+            .await
+            .expect("Error getting the recipe");
+        let row = res.next().await;
+        let mut recipe = format_recipes(row.expect("Error in row").expect("Empty row"));
+        get_ingredients_from_db(graph.clone(), &mut recipe).await;
+        recipe
+    });
+    Json(recipe)
+}
+
+#[delete("/weeklyreset")]
+pub fn reset_all_chosen(rt: State<Runtime>, graph: State<GraphPool>, u_id: UserId) -> Status {
+    rt.block_on(async {
+        graph
+            .run(
+                query(
+                    "MATCH (u:User)-[c:CHOSEN]->() \
+                WHERE u.id = $u_id \
+                DETACH DELETE c",
+                )
+                .param("u_id", u_id.0.clone()),
+            )
+            .await
             .expect("Couldn't delete chosen relationships");
     });
     Status::NoContent
+}
+
+#[put("/like?<r_id>")]
+pub fn like_recipe(
+    rt: State<Runtime>,
+    graph: State<GraphPool>,
+    u_id: UserId,
+    r_id: String,
+) -> Status {
+    rt.block_on(async {
+        let mut recipe_stream =
+            graph.execute(
+                query(
+                    "MATCH (r:Recipe)-[c:LIKES|OWNS]-(u:User) WHERE u.id = $u_id AND r.id = $r_id \
+                RETURN r, c",
+                )
+                    .param("u_id", u_id.0.clone())
+                    .param("r_id", r_id.clone()),
+            )
+                .await
+                .expect("Couldn't find that recipe");
+
+        let recipe_row_result = recipe_stream.next().await;
+        let recipe_row = recipe_row_result.expect("Error fetching row");
+        if recipe_row.is_none() {
+            graph.run(
+                query(
+                    "MATCH (u:User), (r:Recipe) \
+                    WHERE u.id = $u_id AND (r.id = $r_id AND r.public = true) \
+                    MERGE (u)-[:LIKES]->(r)"
+                )
+                    .param("u_id", u_id.0.clone())
+                    .param("r_id", r_id.clone()),
+            )
+                .await
+                .expect("Couldn't like the recipe");
+            return Status::Created;
+        }
+        let relationship_node = recipe_row.unwrap().get::<Relation>("c").unwrap();
+        if &relationship_node.typ() == "OWNS" {
+            return Status::NoContent;
+        }
+        graph.run(
+            query(
+                "MATCH (u:User)-[l:LIKES]->(r:Recipe) \
+                WHERE u.id = $u_id AND r.id = $r_id \
+                DETACH DELETE l"
+            )
+                .param("u_id", u_id.0.clone())
+                .param("r_id", r_id.clone()),
+        )
+            .await
+            .expect("Couldn't unlike the recipe");
+        Status::Accepted
+    })
 }

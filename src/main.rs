@@ -84,6 +84,9 @@ fn main() {
                 routes::recipes::remove_recipe,
                 routes::recipes::get_recipe,
                 routes::recipes::reset_all_chosen,
+                routes::recipes::recipe_list,
+                routes::recipes::share_recipe,
+                routes::recipes::like_recipe,
             ],
         )
         .mount(
