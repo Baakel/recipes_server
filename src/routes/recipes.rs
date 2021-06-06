@@ -434,6 +434,39 @@ pub fn get_recipe(
     Json(recipe)
 }
 
+#[get("/public/<r_id>")]
+pub fn get_public_recipe(
+    graph: State<GraphPool>,
+    rt: State<Runtime>,
+    r_id: String,
+) -> std::result::Result<Json<Recipe>, Status> {
+    let recipe = rt.block_on(async {
+        let mut res = graph
+            .execute(
+                query(
+                    "MATCH (r:Recipe) \
+               WHERE r.id = $r_id AND r.public = true \
+               RETURN r",
+                )
+                .param("r_id", r_id.clone()),
+            )
+            .await
+            .expect("Error getting the recipe");
+        let row = res.next().await;
+        let row_option = row.expect("Error in row");
+        if row_option.is_none() {
+            return Err(Status::Unauthorized)
+        }
+        let mut recipe = format_recipes(row_option.unwrap());
+        get_ingredients_from_db(graph.clone(), &mut recipe).await;
+        Ok(recipe)
+    });
+    if recipe.is_err() {
+        return Err(recipe.err().unwrap())
+    }
+    Ok(Json(recipe.unwrap()))
+}
+
 #[get("/share?<r_id>")]
 pub fn share_recipe(graph: State<GraphPool>, rt: State<Runtime>, r_id: String) -> Json<Recipe> {
     let recipe = rt.block_on(async {
@@ -526,5 +559,37 @@ pub fn like_recipe(
             .await
             .expect("Couldn't unlike the recipe");
         Status::Accepted
+    })
+}
+
+#[get("/public")]
+pub fn public_recipes(
+    graph: State<GraphPool>,
+    rt: State<Runtime>,
+) -> Json<RecipeVec> {
+    let recipes_vec = rt.block_on(async {
+       let mut res = graph.execute(
+           query(
+               "MATCH (r:Recipe) WHERE r.public = true RETURN r"
+           )
+       )
+       .await
+       .expect("Error getting public recipe list");
+
+        let mut recipes_vector = Vec::new();
+
+        while let Ok(Some(row)) = res.next().await {
+            recipes_vector.push(format_recipes(row))
+        }
+
+        for recipe in &mut recipes_vector {
+            get_ingredients_from_db(graph.clone(), recipe).await;
+        }
+        recipes_vector
+    });
+
+    Json(RecipeVec {
+        recipes: recipes_vec,
+        rels: None
     })
 }

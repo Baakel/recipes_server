@@ -51,6 +51,7 @@ fn main() {
     // to work with the static sites from Svelte I could maybe get rid of this and server
     // everything from here. Lack of documentation is killing me.
     let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
+    // let allowed_origins = AllowedOrigins::all();
     let cors = rocket_cors::CorsOptions {
         allowed_origins,
         allowed_methods: vec![Method::Post, Method::Options, Method::Get, Method::Delete]
@@ -87,6 +88,8 @@ fn main() {
                 routes::recipes::recipe_list,
                 routes::recipes::share_recipe,
                 routes::recipes::like_recipe,
+                routes::recipes::public_recipes,
+                routes::recipes::get_public_recipe,
             ],
         )
         .mount(
